@@ -4,7 +4,7 @@ LIBRARY=nope
 INCPATHS=include
 LIBPATHS=.
 LDFLAGS=
-CFLAGS=-c -Wall -Werror -Wno-error=unused-variable -std=c++17
+CFLAGS=-c -Wall -Werror -Wno-error=unused-variable
 CC=gcc
 
 # Automatic generation of some important lists
