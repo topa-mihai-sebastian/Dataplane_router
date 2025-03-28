@@ -127,6 +127,7 @@ class FullNM(object):
 
         def disable_nic_checksum(host, iface):
             host.cmd('ethtool iface {} --offload rx off tx off'.format(iface))
+            host.cmd('ethtool -K {} rx off tx off'.format(iface))
             host.cmd('ethtool -K {} tx-checksum-ip-generic off'.format(iface))
 
         def disable_arp(host, iface):
