@@ -23,9 +23,12 @@ int queue_empty(queue q)
 
 void queue_enq(queue q, void *element)
 {
-	if(queue_empty(q)) {
+	if (queue_empty(q))
+	{
 		q->head = q->tail = constr(element, NULL);
-	} else {
+	}
+	else
+	{
 		q->tail->next = constr(element, NULL);
 		q->tail = q->tail->next;
 	}

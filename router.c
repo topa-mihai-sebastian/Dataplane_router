@@ -1,8 +1,35 @@
 #include "protocols.h"
+#include "list.h"
 #include "queue.h"
 #include "lib.h"
 #include <string.h>
 #include <arpa/inet.h>
+
+#define ARP_LEN 42
+#define ICMP_LEN 98
+
+queue packets;
+
+// nu mergeee
+//  int queue_size(queue q)
+//  {
+//  	if (queue_empty(q))
+//  	{
+//  		return 0; // Coada este goală
+//  	}
+
+// 	int size = 0;
+// 	list current = q->head; // Începe de la capul listei
+
+// 	// Parcurge lista și numără nodurile
+// 	while (current != NULL)
+// 	{
+// 		size++;
+// 		current = current->next;
+// 	}
+
+// 	return size;
+// }
 
 struct trie
 {
@@ -16,7 +43,7 @@ struct route_table_entry *rtable;
 struct trie *head;
 
 struct arp_table_entry *arp_table;
-int arb_table_len;
+int arp_table_len;
 
 void add_route(struct route_table_entry *route)
 {
@@ -54,6 +81,7 @@ void add_route(struct route_table_entry *route)
 		pos--;
 	}
 }
+
 void create_trie()
 {
 	for (int i = 0; i < rtable_len; i++)
@@ -61,6 +89,7 @@ void create_trie()
 		add_route(&rtable[i]);
 	}
 }
+
 int compare_rtable_entries(const void *a, const void *b)
 {
 	struct route_table_entry *entry1 = (struct route_table_entry *)a;
@@ -113,6 +142,7 @@ int is_equal_address(uint8_t address1[6], uint8_t address2[6])
 			return 0;
 	return 1;
 }
+
 // struct route_table_entry *get_best_route(uint32_t ip_dest)
 // {
 // 	/* TODO 2.2: Implement the LPM algorithm */
@@ -177,6 +207,102 @@ struct route_table_entry *get_best_route(uint32_t ip_dest)
 	return best_route;
 }
 
+struct arp_table_entry *get_arp_entry(uint32_t ip)
+{
+	for (int i = 0; i < arp_table_len; i++)
+	{
+		if (ip == arp_table[i].ip)
+		{
+			return &arp_table[i];
+		}
+	}
+	// daca nu s-a gasit se retuneaza null
+	return NULL;
+}
+
+void send_ARP_request(void *buf, struct route_table_entry *ip_entry)
+{
+	char request[MAX_PACKET_LEN];
+	struct ether_hdr *ether_header;
+	struct arp_hdr *arp_header;
+
+	// pun pachetul in coada
+	struct ip_hdr *to_send = malloc(ICMP_LEN);
+	memcpy(to_send, buf, ICMP_LEN);
+	queue_enq(packets, to_send);
+
+	// header pt ethernet
+	ether_header = malloc(sizeof(struct ether_hdr));
+	ether_header->ethr_type = htons(0x0806);
+	get_interface_mac(ip_entry->interface, ether_header->ethr_shost);
+	hwaddr_aton("FF:FF:FF:FF:FF:FF", ether_header->ethr_dhost);
+
+	// header arp
+	arp_header = malloc(sizeof(struct arp_hdr));
+	arp_header->hw_len = 6;
+	arp_header->proto_len = 4;
+	arp_header->hw_type = htons(1);
+	arp_header->proto_type = htons(0x0800);
+	arp_header->opcode = htons(1);
+	arp_header->sprotoa = inet_addr(get_interface_ip(ip_entry->interface));
+	arp_header->tprotoa = ip_entry->next_hop;
+	get_interface_mac(ip_entry->interface, arp_header->shwa);
+
+	memcpy(request, ether_header, sizeof(struct ether_hdr));
+	memcpy(request + sizeof(struct ether_hdr), arp_header, sizeof(struct arp_hdr));
+
+	send_to_link(ARP_LEN, request, ip_entry->interface);
+}
+
+void send_ARP_reply(void *buf, uint8_t target[6], int interface)
+{
+	struct ether_hdr *eth_header = (struct ether_hdr *)buf;
+	struct arp_hdr *arp_header = (struct arp_hdr *)(buf + sizeof(struct ether_hdr));
+
+	memcpy(arp_header->thwa, arp_header->shwa, 6);
+	memcpy(arp_header->shwa, target, 6);
+	arp_header->opcode = htons(2);
+	swap(arp_header->shwa, arp_header->thwa, 6);
+
+	memcpy(eth_header->ethr_dhost, arp_header->thwa, 6);
+	memcpy(eth_header->ethr_shost, arp_header->shwa, 6);
+
+	send_to_link(ARP_LEN, buf, interface);
+}
+
+void get_ARP_reply(void *buf, int interface)
+{
+	struct arp_hdr *arp_header = (struct arp_hdr *)(buf + sizeof(struct ether_hdr));
+	queue rest = create_queue();
+	//
+	struct arp_table_entry new_arp_entry;
+	new_arp_entry.ip = arp_header->sprotoa;
+	memcpy(new_arp_entry.mac, arp_header->shwa, 6);
+	arp_table[arp_table_len] = new_arp_entry;
+	arp_table_len++;
+
+	while (!queue_empty(packets))
+	{
+		char *popped_packet = queue_deq(packets);
+		struct ether_hdr *popped_eth_header = (struct ether_hdr *)(popped_packet);
+		struct ip_hdr *popped_ip_header = (struct ip_hdr *)(popped_packet + sizeof(struct ether_hdr));
+		struct route_table_entry *best_route = get_best_route(popped_ip_header->dest_addr);
+		if (new_arp_entry.ip == best_route->next_hop)
+		{
+			popped_eth_header->ethr_type = htons(0x0800);
+			memcpy(popped_eth_header->ethr_dhost, arp_header->shwa, 6);
+			memcpy(popped_eth_header->ethr_shost, arp_header->thwa, 6);
+
+			send_to_link(ICMP_LEN, buf, interface);
+		}
+		else
+		{
+			queue_enq(rest, popped_packet);
+		}
+	}
+	packets = rest;
+}
+
 int main(int argc, char *argv[])
 {
 	char buf[MAX_PACKET_LEN];
@@ -190,7 +316,7 @@ int main(int argc, char *argv[])
 
 	qsort(rtable, rtable_len, sizeof(struct route_table_entry), compare_rtable_entries);
 	arp_table = malloc(sizeof(struct arp_table_entry) * 100000);
-	printf("TOTUL FOARTE BINE");
+	packets = create_queue();
 	while (1)
 	{
 
@@ -274,9 +400,10 @@ int main(int argc, char *argv[])
 
 			mac_entry = get_arp_entry(ip_entry->next_hop);
 
-			if (mac_entry)
+			if (!mac_entry)
 			{
-				// send_arp_req
+				printf("Sending ARP request for IP: %s\n", inet_ntoa(*(struct in_addr *)&ip_entry->next_hop));
+				send_ARP_request(buf, ip_entry);
 				continue;
 			}
 			memcpy(eth_hdr->ethr_dhost, mac_entry->mac, 6);
@@ -285,6 +412,25 @@ int main(int argc, char *argv[])
 		// arp
 		else if (ntohs(eth_hdr->ethr_type) == 0x0806)
 		{
+			struct arp_hdr *arp_header = (struct arp_hdr *)(buf + sizeof(struct ether_hdr));
+
+			// arp_request
+			if (ntohs(arp_header->opcode) == 1)
+			{
+				uint32_t target = ntohl(arp_header->tprotoa);
+				uint32_t interface_ip = ntohl(inet_addr(get_interface_ip(interface)));
+
+				if (target == interface_ip)
+				{
+					printf("Received ARP request for this router. Sending ARP reply.\n");
+					send_ARP_reply(buf, mac, interface);
+				}
+			}
+			else if (ntohs(arp_header->opcode) == 2)
+			{
+				printf("Received ARP reply. Processing...\n");
+				get_ARP_reply(buf, interface);
+			}
 		}
 
 		/* Note that packets received are in network order,
