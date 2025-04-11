@@ -322,6 +322,22 @@ void send_ARP_reply(void *buf, uint8_t target[6], int interface)
 	send_to_link(ARP_LEN, buf, interface);
 }
 
+void update_arp_table(struct arp_table_entry *arp_table, int *arp_table_len, struct arp_table_entry new_arp_entry)
+{
+	// daca exista deja doar actualizez
+	for (int i = 0; i < *arp_table_len; i++)
+	{
+		if (arp_table[i].ip == new_arp_entry.ip)
+		{
+			memcpy(arp_table[i].mac, new_arp_entry.mac, 6);
+			return;
+		}
+	}
+	// else
+	arp_table[*arp_table_len] = new_arp_entry;
+	(*arp_table_len)++;
+}
+
 void get_ARP_reply(void *buf, int interface)
 {
 	struct arp_hdr *arp_header = (struct arp_hdr *)(buf + sizeof(struct ether_hdr));
@@ -336,16 +352,8 @@ void get_ARP_reply(void *buf, int interface)
 	new_arp_entry.ip = arp_header->sprotoa;
 	memcpy(new_arp_entry.mac, arp_header->shwa, 6);
 
-	for (int i = 0; i < arp_table_len; i++)
-	{
-		if (arp_table[i].ip == new_arp_entry.ip)
-		{
-			memcpy(arp_table[i].mac, new_arp_entry.mac, 6);
-			return;
-		}
-	}
-	arp_table[arp_table_len] = new_arp_entry;
-	arp_table_len++;
+	update_arp_table(arp_table, &arp_table_len, new_arp_entry);
+
 	// coada temporara pentru pachetele ramase
 	queue rest = create_queue();
 
