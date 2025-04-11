@@ -1,6 +1,4 @@
--- Wrong source address
--- Expected: de:fe:c8:ed:00:00
--- Got: de:ad:be:ef:00:00
+-- No reply received
 -- Packet
 ###[ Ethernet ]### 
   dst       = ff:ff:ff:ff:ff:ff
@@ -15,21 +13,5 @@
      hwsrc     = de:ad:be:ef:00:00
      psrc      = 192.168.0.2
      hwdst     = 00:00:00:00:00:00
-     pdst      = 192.168.0.1
-
--- Packet
-###[ Ethernet ]### 
-  dst       = de:fe:c8:ed:00:00
-  src       = de:ad:be:ef:00:00
-  type      = ARP
-###[ ARP ]### 
-     hwtype    = 0x1
-     ptype     = IPv4
-     hwlen     = 6
-     plen      = 4
-     op        = is-at
-     hwsrc     = de:ad:be:ef:00:00
-     psrc      = 192.168.0.2
-     hwdst     = de:fe:c8:ed:00:00
      pdst      = 192.168.0.1
 
