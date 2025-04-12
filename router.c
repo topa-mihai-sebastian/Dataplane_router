@@ -187,6 +187,30 @@ struct arp_table_entry *get_arp_entry(uint32_t ip)
 	return destination;
 }
 
+struct arp_hdr *create_arp_req_header(struct route_table_entry *entry)
+{
+	struct arp_hdr *arp_temp = malloc(sizeof(struct arp_hdr));
+	arp_temp->proto_len = 4;
+	arp_temp->opcode = htons(1); // arp_req
+	arp_temp->hw_type = htons(1);
+	arp_temp->hw_len = 6;
+	arp_temp->proto_type = htons(0x0800); // ipv4
+	arp_temp->sprotoa = inet_addr(get_interface_ip(entry->interface));
+	arp_temp->tprotoa = entry->next_hop;
+	get_interface_mac(entry->interface, arp_temp->shwa);
+	return arp_temp;
+}
+
+struct ether_hdr *create_arp_eth_header(struct route_table_entry *entry)
+{
+	struct ether_hdr *eth_temp = malloc(sizeof(struct ether_hdr));
+
+	memset(eth_temp->ethr_dhost, 0xFF, 6); // MAC broadcast
+	eth_temp->ethr_type = htons(0x0806);   // cod arp
+	get_interface_mac(entry->interface, eth_temp->ethr_shost);
+	return eth_temp;
+}
+
 void send_ARP_request(const char *packet_buf, struct route_table_entry *entry)
 {
 	// fac o copie a lui packet_buf si il bag in coada
@@ -198,24 +222,11 @@ void send_ARP_request(const char *packet_buf, struct route_table_entry *entry)
 	// headere
 	char arp_req[MAX_PACKET_LEN];
 
-	struct ether_hdr *eth_temp = malloc(sizeof(struct ether_hdr));
-	DIE(eth_temp == NULL, "malloc");
-	eth_temp->ethr_type = htons(0x0806); // cod arp
-	get_interface_mac(entry->interface, eth_temp->ethr_shost);
-	memset(eth_temp->ethr_dhost, 0xFF, 6); // MAC broadcast
+	struct ether_hdr *eth_temp = create_arp_eth_header(entry);
 
-	struct arp_hdr *arp_temp = malloc(sizeof(struct arp_hdr));
-	DIE(arp_temp == NULL, "malloc");
-	arp_temp->hw_type = htons(1);
-	arp_temp->proto_type = htons(0x0800); // ipv4
-	arp_temp->hw_len = 6;
-	arp_temp->proto_len = 4;
-	arp_temp->opcode = htons(1); // arp_req
-	arp_temp->sprotoa = inet_addr(get_interface_ip(entry->interface));
-	arp_temp->tprotoa = entry->next_hop;
-	get_interface_mac(entry->interface, arp_temp->shwa);
+	struct arp_hdr *arp_temp = create_arp_req_header(entry);
 
-	// le copuez in bufferul final
+	// le copiez in bufferul final
 	memcpy(arp_req, eth_temp, sizeof(struct ether_hdr));
 	memcpy(arp_req + sizeof(struct ether_hdr), arp_temp, sizeof(struct arp_hdr));
 
@@ -337,6 +348,23 @@ void ICMP_echo_reply(char *buf, int interface)
 	send_to_link(ICMP_LEN, buf, interface);
 }
 
+void build_icmp_error_eth_ip(char *buf, int interface, struct ether_hdr *eth_hdr, struct ip_hdr *ip_hdr)
+{
+	// eth header
+	memcpy(eth_hdr, buf, sizeof(struct ether_hdr));
+	eth_hdr->ethr_type = htons(0x0800); // ipv4
+	swap(&(eth_hdr->ethr_shost), &(eth_hdr->ethr_dhost), 6);
+
+	memcpy(ip_hdr, (char *)(buf + sizeof(struct ether_hdr)), sizeof(struct ip_hdr));
+	ip_hdr->source_addr = inet_addr(get_interface_ip(interface));
+	ip_hdr->dest_addr = ip_hdr->source_addr;
+	ip_hdr->ttl = 64;
+	ip_hdr->tot_len = htons(sizeof(struct ip_hdr) + sizeof(struct icmp_hdr) + 64);
+	ip_hdr->proto = 1; // icmp
+	ip_hdr->checksum = 0;
+	ip_hdr->checksum = htons(checksum((uint16_t *)ip_hdr, sizeof(struct ip_hdr)));
+}
+
 void ICMP_error(char *buf, int interface, uint8_t type)
 {
 	char packet[MAX_PACKET_LEN];
@@ -347,19 +375,7 @@ void ICMP_error(char *buf, int interface, uint8_t type)
 
 	memcpy(data, buf + sizeof(struct ether_hdr), 64);
 
-	// eth header
-	memcpy(eth_hdr, buf, sizeof(struct ether_hdr));
-	swap(&(eth_hdr->ethr_shost), &(eth_hdr->ethr_dhost), 6);
-	eth_hdr->ethr_type = htons(0x0800); // IPv4
-
-	memcpy(ip_hdr, (char *)(buf + sizeof(struct ether_hdr)), sizeof(struct ip_hdr));
-	ip_hdr->dest_addr = ip_hdr->source_addr;
-	ip_hdr->source_addr = inet_addr(get_interface_ip(interface));
-	ip_hdr->ttl = 64;
-	ip_hdr->tot_len = htons(sizeof(struct ip_hdr) + sizeof(struct icmp_hdr) + 64);
-	ip_hdr->proto = 1; // ICMP
-	ip_hdr->checksum = 0;
-	ip_hdr->checksum = htons(checksum((uint16_t *)ip_hdr, sizeof(struct ip_hdr)));
+	build_icmp_error_eth_ip(buf, interface, eth_hdr, ip_hdr);
 
 	icmp_hdr->mtype = type;
 	icmp_hdr->mcode = 0;
@@ -415,7 +431,7 @@ int main(int argc, char *argv[])
 
 			if (interface_ip == ip_header->dest_addr)
 			{
-				printf("Packet is for this router\n");
+				printf("packet is for this router\n");
 				ICMP_echo_reply(buf, interface);
 				continue;
 			}
