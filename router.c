@@ -356,8 +356,9 @@ void build_icmp_error_eth_ip(char *buf, int interface, struct ether_hdr *eth_hdr
 	swap(&(eth_hdr->ethr_shost), &(eth_hdr->ethr_dhost), 6);
 
 	memcpy(ip_hdr, (char *)(buf + sizeof(struct ether_hdr)), sizeof(struct ip_hdr));
+	uint32_t aux = ip_hdr->source_addr;
 	ip_hdr->source_addr = inet_addr(get_interface_ip(interface));
-	ip_hdr->dest_addr = ip_hdr->source_addr;
+	ip_hdr->dest_addr = aux;
 	ip_hdr->ttl = 64;
 	ip_hdr->tot_len = htons(sizeof(struct ip_hdr) + sizeof(struct icmp_hdr) + 64);
 	ip_hdr->proto = 1; // icmp
