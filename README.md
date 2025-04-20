@@ -95,7 +95,3 @@ functions used and their roles.
   The router implements ICMP functionality to handle echo requests and error messages.  
     - **ICMP_echo_reply(char *buf, int interface)**: Processes an incoming ICMP echo request by swapping MAC and IP addresses, decrementing the TTL, recalculating checksums, and sending an echo reply  
     - **build_icmp_error_eth_ip(char *buf, int interface, struct ether_hdr *eth_hdr, struct ip_hdr *ip_hdr)** and **ICMP_error(char *buf, int interface, uint8_t type)**: Build the headers for an ICMP error message and send the error package to the original sender.
-
-## Inspiration and Acknowledgements
-
-The trie-based algorithm was inspired by the implementation available at (https://github.com/andre14miron/Dataplane-Router/tree/main).
